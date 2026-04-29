@@ -1,117 +1,52 @@
--- Kuih Vendor Tracker v2 schema
--- Logic: harga ambil from vendor + harga jual by shop.
--- Sedekah leftovers are unpaid to vendor.
+"use client";
 
-create extension if not exists "pgcrypto";
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { Card } from "@/components/Card";
+import { PageShell } from "@/components/PageShell";
+import { formatMoney } from "@/lib/money";
+import { supabase } from "@/lib/supabase";
 
-drop view if exists today_dashboard_summary;
-drop view if exists vendor_outstanding_balances;
-drop table if exists wallet_transactions;
-drop table if exists batch_items;
-drop table if exists daily_batches;
-drop table if exists products;
-drop table if exists vendors;
+type Summary = {
+  gross_sales_today: number;
+  shop_profit_today: number;
+  vendor_payout_today: number;
+  total_outstanding_balance: number;
+};
 
-create table vendors (
-  id uuid primary key default gen_random_uuid(),
-  name text not null,
-  phone text,
-  default_leftover_action text not null default 'donated_unpaid'
-    check (default_leftover_action in ('returned', 'donated_unpaid', 'damaged')),
-  notes text,
-  is_active boolean not null default true,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+export default function HomePage() {
+  const [summary, setSummary] = useState<Summary | null>(null);
 
-create table products (
-  id uuid primary key default gen_random_uuid(),
-  vendor_id uuid not null references vendors(id) on delete cascade,
-  name text not null,
-  cost_price numeric not null default 0,
-  selling_price numeric not null default 0,
-  unit text not null default 'pcs',
-  category text,
-  is_active boolean not null default true,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+  useEffect(() => {
+    async function loadSummary() {
+      const { data } = await supabase.from("today_dashboard_summary").select("*").single();
+      setSummary(data as Summary | null);
+    }
+    loadSummary();
+  }, []);
 
-create table daily_batches (
-  id uuid primary key default gen_random_uuid(),
-  vendor_id uuid not null references vendors(id) on delete cascade,
-  batch_date date not null,
-  status text not null default 'open' check (status in ('open', 'closed')),
-  notes text,
-  created_at timestamptz not null default now(),
-  closed_at timestamptz,
-  unique (vendor_id, batch_date)
-);
+  const today = new Intl.DateTimeFormat("ms-MY", { weekday: "long", day: "numeric", month: "long", year: "numeric" }).format(new Date());
 
-create table batch_items (
-  id uuid primary key default gen_random_uuid(),
-  batch_id uuid not null references daily_batches(id) on delete cascade,
-  product_id uuid references products(id) on delete set null,
-  quantity_sent integer not null default 0,
-  quantity_returned integer not null default 0,
-  quantity_sold integer not null default 0,
-  quantity_donated integer not null default 0,
-  quantity_damaged integer not null default 0,
-  cost_price numeric not null default 0,
-  selling_price numeric not null default 0,
-  gross_sales numeric not null default 0,
-  vendor_payout numeric not null default 0,
-  shop_profit numeric not null default 0,
-  leftover_action text default 'donated_unpaid'
-    check (leftover_action in ('returned', 'donated_unpaid', 'damaged')),
-  notes text,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
+  return (
+    <PageShell>
+      <div>
+        <h1 className="text-3xl font-bold">Hari Ini</h1>
+        <p className="mt-1 text-neutral-500">{today}</p>
+      </div>
 
-create table wallet_transactions (
-  id uuid primary key default gen_random_uuid(),
-  vendor_id uuid not null references vendors(id) on delete cascade,
-  batch_id uuid references daily_batches(id) on delete set null,
-  transaction_date date not null default current_date,
-  type text not null check (type in ('payout_earned', 'payment_made', 'adjustment_add', 'adjustment_deduct')),
-  direction text not null check (direction in ('credit', 'debit')),
-  description text,
-  amount numeric not null default 0,
-  payment_method text,
-  reference_no text,
-  notes text,
-  created_at timestamptz not null default now()
-);
+      <div className="grid grid-cols-2 gap-3">
+        <Card><p className="text-sm text-neutral-500">Jualan kasar</p><p className="mt-2 text-2xl font-bold">{formatMoney(summary?.gross_sales_today)}</p></Card>
+        <Card><p className="text-sm text-neutral-500">Belum ambil</p><p className="mt-2 text-2xl font-bold">{formatMoney(summary?.total_outstanding_balance)}</p></Card>
+        <Card><p className="text-sm text-neutral-500">Untung kedai</p><p className="mt-2 text-2xl font-bold">{formatMoney(summary?.shop_profit_today)}</p></Card>
+        <Card><p className="text-sm text-neutral-500">Duit vendor hari ini</p><p className="mt-2 text-2xl font-bold">{formatMoney(summary?.vendor_payout_today)}</p></Card>
+      </div>
 
-create or replace view vendor_outstanding_balances as
-select
-  v.id as vendor_id,
-  v.name,
-  v.phone,
-  coalesce(sum(case when wt.direction = 'credit' then wt.amount when wt.direction = 'debit' then -wt.amount else 0 end), 0) as outstanding_balance
-from vendors v
-left join wallet_transactions wt on wt.vendor_id = v.id
-group by v.id, v.name, v.phone;
-
-create or replace view today_dashboard_summary as
-select
-  current_date as summary_date,
-  coalesce(count(distinct db.vendor_id), 0) as active_vendors_today,
-  coalesce(count(bi.id), 0) as product_types_today,
-  coalesce(sum(bi.gross_sales), 0) as gross_sales_today,
-  coalesce(sum(bi.shop_profit), 0) as shop_profit_today,
-  coalesce(sum(bi.vendor_payout), 0) as vendor_payout_today,
-  (select coalesce(sum(outstanding_balance), 0) from vendor_outstanding_balances) as total_outstanding_balance
-from daily_batches db
-left join batch_items bi on bi.batch_id = db.id
-where db.batch_date = current_date;
-
-insert into vendors (name, phone, default_leftover_action, notes)
-values ('Kak Ani', '0123456789', 'donated_unpaid', 'Sample vendor')
-on conflict do nothing;
-
-insert into products (vendor_id, name, cost_price, selling_price, unit, category)
-select id, 'Karipap', 0.70, 1.00, 'pcs', 'Kuih'
-from vendors where name = 'Kak Ani'
-limit 1;
+      <div className="space-y-3">
+        <Link href="/masuk"><Card><h2 className="text-xl font-bold">+ Tambah Kuih Masuk</h2><p className="mt-2 text-neutral-500">Rekod kuih yang vendor hantar pagi ini.</p></Card></Link>
+        <Link href="/baki"><Card><h2 className="text-xl font-bold">Kira Baki</h2><p className="mt-2 text-neutral-500">Isi baki dan pilih sedekah / ambil balik / rosak.</p></Card></Link>
+        <Link href="/bayar"><Card><h2 className="text-xl font-bold">Bayar Vendor</h2><p className="mt-2 text-neutral-500">Rekod duit yang vendor sudah ambil.</p></Card></Link>
+        <Link href="/duit"><Card><h2 className="text-xl font-bold">Lihat Duit Vendor</h2><p className="mt-2 text-neutral-500">Semak baki duit belum ambil setiap vendor.</p></Card></Link>
+      </div>
+    </PageShell>
+  );
+}
