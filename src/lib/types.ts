@@ -1,15 +1,26 @@
-import type { Metadata } from "next";
-import "./globals.css";
-
-export const metadata: Metadata = {
-  title: "Kuih Vendor Tracker",
-  description: "Track vendor kuih, leftovers, payouts and wallet balances.",
+export type Vendor = {
+  id: string;
+  name: string;
+  phone: string | null;
+  default_leftover_action: "returned" | "donated_unpaid" | "damaged";
+  notes?: string | null;
+  is_active?: boolean;
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
-  return (
-    <html lang="ms">
-      <body>{children}</body>
-    </html>
-  );
-}
+export type Product = {
+  id: string;
+  vendor_id: string;
+  name: string;
+  cost_price: number;
+  selling_price: number;
+  unit: string;
+  category?: string | null;
+  is_active?: boolean;
+};
+
+export type VendorBalance = {
+  vendor_id: string;
+  name: string;
+  phone: string | null;
+  outstanding_balance: number;
+};

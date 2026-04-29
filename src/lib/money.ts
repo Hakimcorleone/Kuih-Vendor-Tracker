@@ -1,7 +1,13 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+export function formatMoney(value: number | string | null | undefined) {
+  const numberValue = Number(value || 0);
 
-:root { color-scheme: light; }
-body { background: #f7f7f7; color: #111; }
-input, select, textarea { font-size: 16px; }
+  return new Intl.NumberFormat("ms-MY", {
+    style: "currency",
+    currency: "MYR",
+    minimumFractionDigits: 2,
+  }).format(numberValue);
+}
+
+export function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
